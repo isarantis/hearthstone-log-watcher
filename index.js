@@ -94,15 +94,28 @@ LogWatcher.prototype.parseBuffer = function (buffer, parserState) {
   buffer.toString().split(this.options.endOfLineChar).forEach(function (line) {
 
     // Check if a card is changing zones.
-    var zoneChangeRegex = /name=(.*) id=(\d+).*cardId=(.*) .* to (FRIENDLY|OPPOSING) (.*)$/;
+    var zoneChangeRegex = /name=(.*) id=(\d+).*cardId=(.*) player=(.*)] zone from (.*) -> (FRIENDLY|OPPOSING) (.*)$/;
     if (zoneChangeRegex.test(line)) {
       var parts = zoneChangeRegex.exec(line);
+
+      //First draws has no origin, but it's safe to asume it's FRIENDLY DECK
+      if (parts[5].length < 2 && parts[6] == 'FRIENDLY' && parts[7] == 'HAND' && parts[3] !='GAME_005' && parserState.currentlyMulligan == true) {
+        var cFrom = ["FRIENDLY", "DECK"];
+      } else {
+        cFrom = parts[5].split(' ');
+        if (cFrom.length < 2) {
+          cFrom = ["", ""];
+        }
+      }
+
       var data = {
         cardName: parts[1],
         entityId: parseInt(parts[2]),
         cardId: parts[3],
-        team: parts[4],
-        zone: parts[5]
+        fromTeam: cFrom[0],
+        fromZone: cFrom[1],
+        team: parts[6],
+        zone: parts[7]
       };
       log.zoneChange('%s moved to %s %s.', data.cardName, data.team, data.zone)
       self.emit('zone-change', data);
@@ -133,6 +146,9 @@ LogWatcher.prototype.parseBuffer = function (buffer, parserState) {
       });
       log.gameStart('A game has started.')
       self.emit('game-start', parserState.players);
+
+      parserState.currentlyMulligan = true;
+
     }
 
     // Check if the game is over.
@@ -152,21 +168,6 @@ LogWatcher.prototype.parseBuffer = function (buffer, parserState) {
         self.emit('game-over', parserState.players);
         parserState.reset();
       }
-    }
-
-
-
-
-    // Check for mulligan state start
-    var mulliganStartRegex = /TAG_CHANGE Entity=GameEntity tag=STEP value=BEGIN_MULLIGAN/;
-    if (mulliganStartRegex.test(line)) {
-      parserState.currentlyMulligan = true;
-      var data = {
-        team: 'MULLIGAN',
-      };
-      log.zoneChange('Turn switched to %s.', data.team);
-      self.emit('turn-change', data);
-
     }
 
     // Check for mulligan state end
